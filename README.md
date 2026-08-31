@@ -6,7 +6,6 @@ Cross-platform build and release scripts for Farming Simulator mods. Both script
 
 - A mod repository with one or more `FS<version>_Src/` directories containing a `modDesc.xml`
 - `zip` or `git` (bash script), PowerShell 7+ (ps1 script)
-- `git` and `jq` required for the `release` command
 
 ## Expected folder structure
 
@@ -14,14 +13,20 @@ Cross-platform build and release scripts for Farming Simulator mods. Both script
 <mod-root>/
 ├── FS25_Src/               # Source for FS25 — becomes the zip contents
 │   ├── modDesc.xml         # Mod name and version are read from here
+│   ├── icon_*.dds
 │   ├── scripts/
+│   │   ├── YourModName.lua
+│   │   └── events/
 │   ├── l10n/
-│   └── ...
+│   ├── i3d/
+│   └── screenshots/
 ├── FS28_Src/               # Optional — additional FS version
 │   └── ...
+├── docs/
+├── tools/
 ├── dist/                   # Created automatically; holds build output
 │   └── FS25_ModName.zip
-└── fs_versions.json        # Written by the release command for CI
+└── fs_versions.json        # Read by CI to determine which FS versions to build
 ```
 
 ## How it works
@@ -35,10 +40,7 @@ Dev files (`.bak`, `.log`, `.png`) are excluded from the zip. Zip entries always
 | Command | Description |
 |---|---|
 | `build` | Builds the zip artifact |
-| `release-test` | Same as `build` (local snapshot) |
-| `release <version>` | Builds, tags, and pushes to trigger CI release |
-
-The `release` command requires a clean working tree, validates the version format (`X.Y.Z.W` or `X.Y.Z.W-alpha.N` / `-beta.N`), updates `fs_versions.json`, creates an annotated git tag (`release/<version>`), and pushes to origin.
+| `release-test` | Alias for `build` (local snapshot) |
 
 ## Usage
 
@@ -46,18 +48,12 @@ The `release` command requires a clean working tree, validates the version forma
 ```powershell
 .\build.ps1 build -mod_path <path-to-mod-root>
 .\build.ps1 build -mod_path <path-to-mod-root> -fs_ver 28
-.\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root>
-.\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root> -fs_ver 25,28
-.\build.ps1 release 1.0.0.0-beta.1 -mod_path <path-to-mod-root> -fs_ver 25
 ```
 
 **Bash:**
 ```bash
 ./build.sh build --mod_path <path-to-mod-root>
 ./build.sh build --mod_path <path-to-mod-root> --fs_ver 28
-./build.sh release 1.0.0.0 --mod_path <path-to-mod-root>
-./build.sh release 1.0.0.0 --mod_path <path-to-mod-root> --fs_ver 25,28
-./build.sh release 1.0.0.0-beta.1 --mod_path <path-to-mod-root> --fs_ver 25
 ```
 
 `--fs_ver` accepts a single version number or a comma-separated list (e.g. `25,28`). If omitted, the highest-numbered `FS*_Src/` directory is used.
