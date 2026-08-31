@@ -48,7 +48,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$ScriptVersion = "v1.2.0"
+$ScriptVersion = "v1.3.0"
 
 Write-Host "FS Mod Build Scripts $ScriptVersion"
 
