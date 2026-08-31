@@ -19,7 +19,7 @@
     Builds a distributable .zip mod artifact, or creates a release tag to trigger CI.
     Automatically detects mod name from modDesc.xml and FS version from directory name.
 
-    --fs_ver accepts a single version or comma-separated list (e.g. 25,28).
+    -fs_ver accepts a single version or comma-separated list (e.g. 25,28).
     If omitted, defaults to the highest-numbered FS*_Src directory found.
 .PARAMETER Command
     One of: build, release-test, release
@@ -27,13 +27,15 @@
     Semver for release command (e.g. 1.0.0.0, 1.0.0.0-beta.1). Required for 'release'.
 .PARAMETER fs_ver
     FS version(s) as a comma-separated string. Defaults to latest FS*_Src found.
+.PARAMETER mod_path
+    Required mod base path containing FS*_Src directories.
 .EXAMPLE
-    .\build.ps1 build
-    .\build.ps1 build --fs_ver 28
-    .\build.ps1 release 1.0.0.0
-    .\build.ps1 release 1.0.0.0 --fs_ver 25,28
-    .\build.ps1 release 1.0.0.0-beta.1 --fs_ver 25
-    .\build.ps1 release 1.0.0.0-alpha.1
+    .\build.ps1 build -mod_path <path-to-mod-root>
+    .\build.ps1 build -mod_path <path-to-mod-root> -fs_ver 28
+    .\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root>
+    .\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root> -fs_ver 25,28
+    .\build.ps1 release 1.0.0.0-beta.1 -mod_path <path-to-mod-root> -fs_ver 25
+    .\build.ps1 release 1.0.0.0-alpha.1 -mod_path <path-to-mod-root>
 #>
 param(
     [Parameter(Position = 0, Mandatory = $true)]
@@ -43,11 +45,74 @@ param(
     [Parameter(Position = 1)]
     [string]$Version,
 
-    [string]$fs_ver
+    [Alias("fs_ver")]
+    [string]$FsVer,
+
+    [Alias("mod_path")]
+    [string]$ModPath,
+
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArgs
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+
+if ($RemainingArgs) {
+    for ($i = 0; $i -lt $RemainingArgs.Count; $i++) {
+        $arg = $RemainingArgs[$i]
+        switch ($arg) {
+            "--mod_path" {
+                if ($i + 1 -ge $RemainingArgs.Count) {
+                    Write-Error "--mod_path requires a value."
+                    exit 1
+                }
+                $ModPath = $RemainingArgs[$i + 1]
+                $i++
+            }
+            "-mod_path" {
+                if ($i + 1 -ge $RemainingArgs.Count) {
+                    Write-Error "-mod_path requires a value."
+                    exit 1
+                }
+                $ModPath = $RemainingArgs[$i + 1]
+                $i++
+            }
+            "--fs_ver" {
+                if ($i + 1 -ge $RemainingArgs.Count) {
+                    Write-Error "--fs_ver requires a value."
+                    exit 1
+                }
+                $FsVer = $RemainingArgs[$i + 1]
+                $i++
+            }
+            "-fs_ver" {
+                if ($i + 1 -ge $RemainingArgs.Count) {
+                    Write-Error "-fs_ver requires a value."
+                    exit 1
+                }
+                $FsVer = $RemainingArgs[$i + 1]
+                $i++
+            }
+            default {
+                Write-Error "Unknown argument: $arg"
+                exit 1
+            }
+        }
+    }
+}
+
+if (-not $ModPath) {
+    Write-Error "mod_path is required. Usage: .\build.ps1 <build|release-test|release> [version] -mod_path <path> [-fs_ver VER]"
+    exit 1
+}
+
+if (-not (Test-Path -Path $ModPath -PathType Container)) {
+    Write-Error "mod_path does not exist or is not a directory: $ModPath"
+    exit 1
+}
+
+$ModBasePath = (Resolve-Path -Path $ModPath).Path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,8 +146,10 @@ function Get-ModNameFromDescriptor {
 
 # Find the highest-numbered FS*_Src directory
 function Get-LatestFsVersion {
+    param([string]$BasePath)
+
     $latest = $null
-    Get-ChildItem -Path $ScriptDir -Directory -Filter "FS*_Src" | ForEach-Object {
+    Get-ChildItem -Path $BasePath -Directory -Filter "FS*_Src" | ForEach-Object {
         $n = $_.Name -replace '^FS(\d+)_Src$', '$1'
         if ($n -match '^\d+$') {
             $num = [int]$n
@@ -92,7 +159,7 @@ function Get-LatestFsVersion {
         }
     }
     if ($null -eq $latest) {
-        Write-Error "No FS*_Src directories found in $ScriptDir"
+        Write-Error "No FS*_Src directories found in $BasePath"
         exit 1
     }
     return $latest.ToString()
@@ -104,17 +171,17 @@ function Resolve-FsVersions {
     if ($Raw) {
         return $Raw -split ',' | ForEach-Object { $_.Trim() }
     }
-    return @(Get-LatestFsVersion)
+    return @(Get-LatestFsVersion -BasePath $ModBasePath)
 }
 
 function Invoke-Build {
-    param([string]$FsVer)
+    param([string]$FsVer, [string]$BasePath)
 
-    $srcDir  = Join-Path $ScriptDir "FS${FsVer}_Src"
+    $srcDir  = Join-Path $BasePath "FS${FsVer}_Src"
     $modDesc = Join-Path $srcDir "modDesc.xml"
     $modName = Get-ModNameFromDescriptor -DescPath $modDesc
     $zipName = "FS${FsVer}_${modName}"
-    $outDir  = Join-Path $ScriptDir "dist"
+    $outDir  = Join-Path $BasePath "dist"
     $zipPath = Join-Path $outDir "${zipName}.zip"
 
     if (-not (Test-Path $srcDir)) {
@@ -173,7 +240,7 @@ function Invoke-Build {
 }
 
 function Invoke-Release {
-    param([string]$Ver, [string[]]$FsVers)
+    param([string]$Ver, [string[]]$FsVers, [string]$BasePath)
 
     $tag = "release/$Ver"
 
@@ -185,7 +252,7 @@ function Invoke-Release {
 
     # Validate that source dirs exist for all requested FS versions
     foreach ($fv in $FsVers) {
-        $srcDir = Join-Path $ScriptDir "FS${fv}_Src"
+        $srcDir = Join-Path $BasePath "FS${fv}_Src"
         if (-not (Test-Path $srcDir)) {
             Write-Error "Source directory not found: $srcDir"
             exit 1
@@ -193,7 +260,7 @@ function Invoke-Release {
     }
 
     # Ensure working tree is clean
-    $status = git -C $ScriptDir status --porcelain
+    $status = git -C $BasePath status --porcelain
     if ($status) {
         Write-Error "Working tree is not clean. Commit or stash changes first."
         exit 1
@@ -201,28 +268,28 @@ function Invoke-Release {
 
     # Build all versions locally to verify artifacts are valid
     foreach ($fv in $FsVers) {
-        Invoke-Build -FsVer $fv
+        Invoke-Build -FsVer $fv -BasePath $BasePath
     }
 
     # Update fs_versions.json so CI knows which versions to build
     $jsonVersions = $FsVers | ForEach-Object { [int]$_ }
-    @{ versions = $jsonVersions } | ConvertTo-Json -Compress | Set-Content (Join-Path $ScriptDir "fs_versions.json") -Encoding UTF8
+    @{ versions = $jsonVersions } | ConvertTo-Json -Compress | Set-Content (Join-Path $BasePath "fs_versions.json") -Encoding UTF8
 
     # Commit the config change
-    git -C $ScriptDir add fs_versions.json
-    $null = git -C $ScriptDir diff --cached --quiet 2>&1
+    git -C $BasePath add fs_versions.json
+    $null = git -C $BasePath diff --cached --quiet 2>&1
     if ($LASTEXITCODE -ne 0) {
         $fsList = $FsVers -join ","
-        git -C $ScriptDir commit -m "Set build targets to FS$fsList for $Ver"
+        git -C $BasePath commit -m "Set build targets to FS$fsList for $Ver"
     }
 
     $fsList = $FsVers -join ", "
     Write-Host ""
     Write-Host "Creating tag: $tag (FS versions: $fsList)" -ForegroundColor Cyan
-    git -C $ScriptDir tag -a $tag -m "Release $Ver (FS$fsList)"
+    git -C $BasePath tag -a $tag -m "Release $Ver (FS$fsList)"
 
     Write-Host "Pushing commit and tag to origin ..."
-    git -C $ScriptDir push origin HEAD $tag
+    git -C $BasePath push origin HEAD $tag
 
     Write-Host ""
     Write-Host "Release tag '$tag' pushed. CI will build and publish the GitHub release." -ForegroundColor Green
@@ -231,20 +298,20 @@ function Invoke-Release {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-$fsVersions = @(Resolve-FsVersions -Raw $fs_ver)
+$fsVersions = @(Resolve-FsVersions -Raw $FsVer)
 
 switch ($Command) {
     "build" {
-        Invoke-Build -FsVer $fsVersions[0]
+        Invoke-Build -FsVer $fsVersions[0] -BasePath $ModBasePath
     }
     "release-test" {
-        Invoke-Build -FsVer $fsVersions[0]
+        Invoke-Build -FsVer $fsVersions[0] -BasePath $ModBasePath
     }
     "release" {
         if (-not $Version) {
-            Write-Error "release requires a version argument. Usage: .\build.ps1 release <version> [--fs_ver VER]"
+            Write-Error "release requires a version argument. Usage: .\build.ps1 release <version> -mod_path <path> [-fs_ver VER]"
             exit 1
         }
-        Invoke-Release -Ver $Version -FsVers $fsVersions
+        Invoke-Release -Ver $Version -FsVers $fsVersions -BasePath $ModBasePath
     }
 }

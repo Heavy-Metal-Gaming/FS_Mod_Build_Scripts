@@ -17,24 +17,25 @@
 # Automatically detects mod name from modDesc.xml and FS version from directory name.
 #
 # Usage:
-#   ./build.sh build   [--fs_ver VER]          Build the zip artifact
-#   ./build.sh release-test [--fs_ver VER]     Alias for build (local snapshot)
-#   ./build.sh release <semver> [--fs_ver VER] Tag + push to trigger CI release
+#   ./build.sh build --mod_path PATH [--fs_ver VER]          Build the zip artifact
+#   ./build.sh release-test --mod_path PATH [--fs_ver VER]   Alias for build (local snapshot)
+#   ./build.sh release <semver> --mod_path PATH [--fs_ver VER] Tag + push to trigger CI release
 #
 # --fs_ver accepts a single version or comma-separated list (e.g. 25,28).
 # If omitted, defaults to the highest-numbered FS*_Src directory found.
 #
 # Examples:
-#   ./build.sh build                              # builds for latest FS version
-#   ./build.sh build --fs_ver 28                  # builds FS28_{ModName}.zip
-#   ./build.sh release 1.0.0.0                    # release for latest FS version
-#   ./build.sh release 1.0.0.0 --fs_ver 25,28     # release for both FS25 and FS28
-#   ./build.sh release 1.0.0.0-beta.1 --fs_ver 25
-#   ./build.sh release 1.0.0.0-alpha.1
+#   ./build.sh build --mod_path /path/to/mod                # builds for latest FS version
+#   ./build.sh build --mod_path /path/to/mod --fs_ver 28    # builds FS28_{ModName}.zip
+#   ./build.sh release 1.0.0.0 --mod_path /path/to/mod
+#   ./build.sh release 1.0.0.0 --mod_path /path/to/mod --fs_ver 25,28
+#   ./build.sh release 1.0.0.0-beta.1 --mod_path /path/to/mod --fs_ver 25
+#   ./build.sh release 1.0.0.0-alpha.1 --mod_path /path/to/mod
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MOD_BASE_PATH=""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -68,8 +69,9 @@ get_mod_name_from_descriptor() {
 
 # Find the highest-numbered FS*_Src directory
 detect_latest_fs_version() {
+    local base_path="$1"
     local latest=""
-    for d in "${SCRIPT_DIR}"/FS*_Src; do
+    for d in "${base_path}"/FS*_Src; do
         [ -d "$d" ] || continue
         local name
         name="$(basename "$d")"
@@ -81,7 +83,7 @@ detect_latest_fs_version() {
     done
 
     if [ -z "$latest" ]; then
-        echo "ERROR: No FS*_Src directories found in ${SCRIPT_DIR}" >&2
+        echo "ERROR: No FS*_Src directories found in ${base_path}" >&2
         exit 1
     fi
     echo "$latest"
@@ -95,21 +97,23 @@ parse_fs_versions() {
 
 usage() {
     echo "Usage:"
-    echo "  $0 build [--fs_ver VER]"
-    echo "  $0 release-test [--fs_ver VER]"
-    echo "  $0 release <semver> [--fs_ver VER]"
+    echo "  $0 build --mod_path PATH [--fs_ver VER]"
+    echo "  $0 release-test --mod_path PATH [--fs_ver VER]"
+    echo "  $0 release <semver> --mod_path PATH [--fs_ver VER]"
     echo ""
+    echo "PATH is the mod base path containing FS*_Src directories."
     echo "VER is a single version (25) or comma-separated list (25,28)."
     echo "Defaults to the latest FS*_Src directory if omitted."
     exit 1
 }
 
 do_build() {
-    local fs_ver="$1"
-    local src_dir="${SCRIPT_DIR}/FS${fs_ver}_Src"
+    local base_path="$1"
+    local fs_ver="$2"
+    local src_dir="${base_path}/FS${fs_ver}_Src"
     local mod_name=$(get_mod_name_from_descriptor "${src_dir}/modDesc.xml")
     local zip_name="FS${fs_ver}_${mod_name}"
-    local out_dir="${SCRIPT_DIR}/dist"
+    local out_dir="${base_path}/dist"
     local zip_path="${out_dir}/${zip_name}.zip"
 
     if [ ! -d "$src_dir" ]; then
@@ -157,8 +161,9 @@ do_build() {
 }
 
 do_release() {
-    local version="$1"
-    shift
+    local base_path="$1"
+    local version="$2"
+    shift 2
     local fs_versions=("$@")
 
     local tag="release/${version}"
@@ -172,7 +177,7 @@ do_release() {
 
     # Validate that source dirs exist for all requested FS versions
     for fv in "${fs_versions[@]}"; do
-        local src_dir="${SCRIPT_DIR}/FS${fv}_Src"
+        local src_dir="${base_path}/FS${fv}_Src"
         if [ ! -d "$src_dir" ]; then
             echo "ERROR: Source directory not found: ${src_dir}" >&2
             exit 1
@@ -180,35 +185,35 @@ do_release() {
     done
 
     # Ensure working tree is clean
-    if [ -n "$(git -C "$SCRIPT_DIR" status --porcelain)" ]; then
+    if [ -n "$(git -C "$base_path" status --porcelain)" ]; then
         echo "ERROR: Working tree is not clean. Commit or stash changes first." >&2
         exit 1
     fi
 
     # Build all versions locally to verify artifacts are valid
     for fv in "${fs_versions[@]}"; do
-        do_build "$fv"
+        do_build "$base_path" "$fv"
     done
 
     # Update fs_versions.json so CI knows which versions to build
     local json_array
     json_array=$(printf '%s\n' "${fs_versions[@]}" | jq -s '.')
-    echo "{\"versions\": ${json_array}}" > "${SCRIPT_DIR}/fs_versions.json"
+    echo "{\"versions\": ${json_array}}" > "${base_path}/fs_versions.json"
 
     # Commit the config change
-    git -C "$SCRIPT_DIR" add fs_versions.json
-    if ! git -C "$SCRIPT_DIR" diff --cached --quiet; then
-        git -C "$SCRIPT_DIR" commit -m "Set build targets to FS$(IFS=,; echo "${fs_versions[*]}") for ${version}"
+    git -C "$base_path" add fs_versions.json
+    if ! git -C "$base_path" diff --cached --quiet; then
+        git -C "$base_path" commit -m "Set build targets to FS$(IFS=,; echo "${fs_versions[*]}") for ${version}"
     fi
 
     echo ""
     local fs_list
     fs_list=$(IFS=', '; echo "${fs_versions[*]}")
     echo "Creating tag: ${tag} (FS versions: ${fs_list})"
-    git -C "$SCRIPT_DIR" tag -a "$tag" -m "Release ${version} (FS${fs_list})"
+    git -C "$base_path" tag -a "$tag" -m "Release ${version} (FS${fs_list})"
 
     echo "Pushing commit and tag to origin ..."
-    git -C "$SCRIPT_DIR" push origin HEAD "$tag"
+    git -C "$base_path" push origin HEAD "$tag"
 
     echo ""
     echo "Release tag '${tag}' pushed. CI will build and publish the GitHub release."
@@ -231,6 +236,14 @@ FS_VER_RAW=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --mod_path)
+            if [ $# -lt 2 ]; then
+                echo "ERROR: --mod_path requires a value (path to mod base directory)" >&2
+                exit 1
+            fi
+            MOD_BASE_PATH="$2"
+            shift 2
+            ;;
         --fs_ver)
             if [ $# -lt 2 ]; then
                 echo "ERROR: --fs_ver requires a value (e.g. --fs_ver 25,28)" >&2
@@ -246,26 +259,38 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [ -z "$MOD_BASE_PATH" ]; then
+    echo "ERROR: --mod_path is required." >&2
+    usage
+fi
+
+if [ ! -d "$MOD_BASE_PATH" ]; then
+    echo "ERROR: Mod base path not found: $MOD_BASE_PATH" >&2
+    exit 1
+fi
+
+MOD_BASE_PATH="$(cd "$MOD_BASE_PATH" && pwd)"
+
 # Parse --fs_ver or detect latest
 if [ -n "$FS_VER_RAW" ]; then
     parse_fs_versions "$FS_VER_RAW"
 else
-    FS_VERSIONS=("$(detect_latest_fs_version)")
+    FS_VERSIONS=("$(detect_latest_fs_version "$MOD_BASE_PATH")")
 fi
 
 case "$COMMAND" in
     build)
-        do_build "${FS_VERSIONS[0]}"
+        do_build "$MOD_BASE_PATH" "${FS_VERSIONS[0]}"
         ;;
     release-test)
-        do_build "${FS_VERSIONS[0]}"
+        do_build "$MOD_BASE_PATH" "${FS_VERSIONS[0]}"
         ;;
     release)
         if [ ${#POSITIONAL[@]} -lt 1 ]; then
             echo "ERROR: release requires a version argument." >&2
             usage
         fi
-        do_release "${POSITIONAL[0]}" "${FS_VERSIONS[@]}"
+        do_release "$MOD_BASE_PATH" "${POSITIONAL[0]}" "${FS_VERSIONS[@]}"
         ;;
     *)
         echo "ERROR: Unknown command '${COMMAND}'" >&2
