@@ -19,7 +19,7 @@ jobs:
       fs_versions: ${{ steps.meta.outputs.fs_versions }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Parse tag metadata
         id: meta
@@ -34,16 +34,18 @@ jobs:
           fi
           echo "version=${TAG}" >> "$GITHUB_OUTPUT"
 
+          # Determine if this is a pre-release
           if echo "$TAG" | grep -qE '-(alpha|beta)\.'; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-          FS_VERSIONS=$(jq -c '.versions' fs_versions.json)
+          # Read FS versions to build from config file
+          FS_VERSIONS=$(cat fs_versions.json | jq -c '.versions')
           echo "fs_versions=${FS_VERSIONS}" >> "$GITHUB_OUTPUT"
 
-  build:
+  build-and-release:
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
@@ -51,25 +53,7 @@ jobs:
         fs_version: ${{ fromJson(needs.prepare.outputs.fs_versions) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install zip
-        run: sudo apt-get update && sudo apt-get install -y zip
-
-      # Option A: pin to a specific version of the build scripts
-      - name: Download build scripts (pinned v1.2.0)
-        run: |
-          BASE="https://github.com/Heavy-Metal-Gaming/FS_Mod_Build_Scripts/releases/download/release%2Fv1.2.0"
-          curl -fLo build.sh "${BASE}/build.sh"
-          chmod +x build.sh
-
-      # Option B: always use the latest release of the build scripts
-      # - name: Download build scripts (latest)
-      #   run: |
-      #     BUILD_SH_URL=$(curl -s https://api.github.com/repos/Heavy-Metal-Gaming/FS_Mod_Build_Scripts/releases/latest \
-      #       | jq -r '.assets[] | select(.name == "build.sh") | .browser_download_url')
-      #     curl -fLo build.sh "$BUILD_SH_URL"
-      #     chmod +x build.sh
+        uses: actions/checkout@v7
 
       - name: Resolve mod name
         id: mod
@@ -78,31 +62,51 @@ jobs:
             FS${{ matrix.fs_version }}_Src/modDesc.xml | head -1 | sed 's/[^a-zA-Z0-9_]//g')
           echo "mod_name=FS${{ matrix.fs_version }}_${MOD_NAME}" >> "$GITHUB_OUTPUT"
 
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      # Option A: always use the latest release of the build scripts
+      - name: Download build scripts (latest)
+        run: |
+          BUILD_SH_URL=$(curl -s https://api.github.com/repos/Heavy-Metal-Gaming/FS_Mod_Build_Scripts/releases/latest \
+            | jq -r '.assets[] | select(.name == "build.sh") | .browser_download_url')
+          curl -fLo build.sh "$BUILD_SH_URL"
+          chmod +x build.sh
+
+      # Option B: pin to a specific version of the build scripts
+      # - name: Download build scripts (pinned v1.2.0)
+      #   run: |
+      #     BASE="https://github.com/Heavy-Metal-Gaming/FS_Mod_Build_Scripts/releases/download/release%2Fv1.2.0"
+      #     curl -fLo build.sh "${BASE}/build.sh"
+      #     chmod +x build.sh
+
       - name: Build mod artifact
         run: ./build.sh build --mod_path "${{ github.workspace }}" --fs_ver ${{ matrix.fs_version }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.mod.outputs.mod_name }}
           path: dist/${{ steps.mod.outputs.mod_name }}.zip
 
   publish:
-    needs: [prepare, build]
+    needs: [prepare, build-and-release]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
       - name: Collect zip files
-        run: find artifacts -name '*.zip' -exec cp {} . \;
+        run: |
+          find artifacts -name '*.zip' -exec cp {} . \;
+          ls -la *.zip
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref }}
+          tag_name: release/${{ needs.prepare.outputs.version }}
           name: "v${{ needs.prepare.outputs.version }}"
           prerelease: ${{ needs.prepare.outputs.prerelease }}
           draft: ${{ needs.prepare.outputs.draft }}
