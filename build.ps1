@@ -14,17 +14,15 @@
     The full license text is available in the repository LICENSE file:
     https://www.gnu.org/licenses/agpl-3.0.txt
 .SYNOPSIS
-    Generic build / release script for FS mods.
+    Generic build script for FS mods.
 .DESCRIPTION
-    Builds a distributable .zip mod artifact, or creates a release tag to trigger CI.
+    Builds a distributable .zip mod artifact.
     Automatically detects mod name from modDesc.xml and FS version from directory name.
 
     -fs_ver accepts a single version or comma-separated list (e.g. 25,28).
     If omitted, defaults to the highest-numbered FS*_Src directory found.
 .PARAMETER Command
-    One of: build, release-test, release
-.PARAMETER Version
-    Semver for release command (e.g. 1.0.0.0, 1.0.0.0-beta.1). Required for 'release'.
+    One of: build, release-test
 .PARAMETER fs_ver
     FS version(s) as a comma-separated string. Defaults to latest FS*_Src found.
 .PARAMETER mod_path
@@ -32,18 +30,11 @@
 .EXAMPLE
     .\build.ps1 build -mod_path <path-to-mod-root>
     .\build.ps1 build -mod_path <path-to-mod-root> -fs_ver 28
-    .\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root>
-    .\build.ps1 release 1.0.0.0 -mod_path <path-to-mod-root> -fs_ver 25,28
-    .\build.ps1 release 1.0.0.0-beta.1 -mod_path <path-to-mod-root> -fs_ver 25
-    .\build.ps1 release 1.0.0.0-alpha.1 -mod_path <path-to-mod-root>
 #>
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("build", "release-test", "release")]
+    [ValidateSet("build", "release-test")]
     [string]$Command,
-
-    [Parameter(Position = 1)]
-    [string]$Version,
 
     [Alias("fs_ver")]
     [string]$FsVer,
@@ -103,7 +94,7 @@ if ($RemainingArgs) {
 }
 
 if (-not $ModPath) {
-    Write-Error "mod_path is required. Usage: .\build.ps1 <build|release-test|release> [version] -mod_path <path> [-fs_ver VER]"
+    Write-Error "mod_path is required. Usage: .\build.ps1 <build|release-test> -mod_path <path> [-fs_ver VER]"
     exit 1
 }
 
@@ -239,79 +230,13 @@ function Invoke-Build {
     Write-Host "Done." -ForegroundColor Cyan
 }
 
-function Invoke-Release {
-    param([string]$Ver, [string[]]$FsVers, [string]$BasePath)
-
-    $tag = "release/$Ver"
-
-    # Validate version format
-    if ($Ver -notmatch '^\d+\.\d+\.\d+\.\d+(-[a-zA-Z]+\.\d+)?$') {
-        Write-Error "Invalid version format '$Ver'. Expected: X.Y.Z.W or X.Y.Z.W-alpha.N or X.Y.Z.W-beta.N"
-        exit 1
-    }
-
-    # Validate that source dirs exist for all requested FS versions
-    foreach ($fv in $FsVers) {
-        $srcDir = Join-Path $BasePath "FS${fv}_Src"
-        if (-not (Test-Path $srcDir)) {
-            Write-Error "Source directory not found: $srcDir"
-            exit 1
-        }
-    }
-
-    # Ensure working tree is clean
-    $status = git -C $BasePath status --porcelain
-    if ($status) {
-        Write-Error "Working tree is not clean. Commit or stash changes first."
-        exit 1
-    }
-
-    # Build all versions locally to verify artifacts are valid
-    foreach ($fv in $FsVers) {
-        Invoke-Build -FsVer $fv -BasePath $BasePath
-    }
-
-    # Update fs_versions.json so CI knows which versions to build
-    $jsonVersions = $FsVers | ForEach-Object { [int]$_ }
-    @{ versions = $jsonVersions } | ConvertTo-Json -Compress | Set-Content (Join-Path $BasePath "fs_versions.json") -Encoding UTF8
-
-    # Commit the config change
-    git -C $BasePath add fs_versions.json
-    $null = git -C $BasePath diff --cached --quiet 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $fsList = $FsVers -join ","
-        git -C $BasePath commit -m "Set build targets to FS$fsList for $Ver"
-    }
-
-    $fsList = $FsVers -join ", "
-    Write-Host ""
-    Write-Host "Creating tag: $tag (FS versions: $fsList)" -ForegroundColor Cyan
-    git -C $BasePath tag -a $tag -m "Release $Ver (FS$fsList)"
-
-    Write-Host "Pushing commit and tag to origin ..."
-    git -C $BasePath push origin HEAD $tag
-
-    Write-Host ""
-    Write-Host "Release tag '$tag' pushed. CI will build and publish the GitHub release." -ForegroundColor Green
-}
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 $fsVersions = @(Resolve-FsVersions -Raw $FsVer)
 
 switch ($Command) {
-    "build" {
+    { $_ -in 'build', 'release-test' } {
         Invoke-Build -FsVer $fsVersions[0] -BasePath $ModBasePath
-    }
-    "release-test" {
-        Invoke-Build -FsVer $fsVersions[0] -BasePath $ModBasePath
-    }
-    "release" {
-        if (-not $Version) {
-            Write-Error "release requires a version argument. Usage: .\build.ps1 release <version> -mod_path <path> [-fs_ver VER]"
-            exit 1
-        }
-        Invoke-Release -Ver $Version -FsVers $fsVersions -BasePath $ModBasePath
     }
 }
