@@ -1,9 +1,11 @@
 # FS Mod Build Scripts — AI Skill Reference
 
+> **IMPORTANT**: Every time this skill is invoked, reload it from disk first to ensure the latest revision is being used.
+
 This document is the authoritative reference for any AI assistant working with the `FS_Mod_Build_Scripts` repo or any mod repo that uses it.
 
-- **Repo**: https://github.com/Heavy-Metal-Gaming/FS_Mod_Build_Scripts
-- **Local clone (Windows)**: `D:\FS_Mod_Build_Scripts`
+- **Repo**: `<your-org>/FS_Mod_Build_Scripts` on GitHub
+- **Local clone**: `<clone-path>/FS_Mod_Build_Scripts`
 
 ---
 
@@ -22,16 +24,16 @@ Both scripts are functionally identical. `-mod_path` / `--mod_path` is required 
 
 **PowerShell:**
 ```powershell
-D:\FS_Mod_Build_Scripts\build.ps1 build -mod_path D:\path\to\mod
-D:\FS_Mod_Build_Scripts\build.ps1 build -mod_path D:\path\to\mod -fs_ver 28
-D:\FS_Mod_Build_Scripts\build.ps1 release-test -mod_path D:\path\to\mod
+<clone-path>\FS_Mod_Build_Scripts\build.ps1 build -mod_path <path-to-mod>
+<clone-path>\FS_Mod_Build_Scripts\build.ps1 build -mod_path <path-to-mod> -fs_ver 28
+<clone-path>\FS_Mod_Build_Scripts\build.ps1 release-test -mod_path <path-to-mod>
 ```
 
 **Bash:**
 ```bash
-/d/FS_Mod_Build_Scripts/build.sh build --mod_path /d/path/to/mod
-/d/FS_Mod_Build_Scripts/build.sh build --mod_path /d/path/to/mod --fs_ver 28
-/d/FS_Mod_Build_Scripts/build.sh release-test --mod_path /d/path/to/mod
+<clone-path>/FS_Mod_Build_Scripts/build.sh build --mod_path <path-to-mod>
+<clone-path>/FS_Mod_Build_Scripts/build.sh build --mod_path <path-to-mod> --fs_ver 28
+<clone-path>/FS_Mod_Build_Scripts/build.sh release-test --mod_path <path-to-mod>
 ```
 
 ### Parameters
@@ -53,7 +55,7 @@ D:\FS_Mod_Build_Scripts\build.ps1 release-test -mod_path D:\path\to\mod
 
 ## Expected mod folder structure
 
-This is the canonical layout for all Heavy Metal Gaming FS mods. Use it to audit and restructure any mod repo.
+This is the canonical layout for FS mods. Use it to audit and restructure any mod repo.
 
 ```
 <mod-root>/
@@ -118,17 +120,17 @@ When a mod's folder structure does not match the above, apply the following step
 
 ## Version tracking
 
-`VERSION.txt` in this repo holds the canonical version string (e.g. `v1.3.0`). Both scripts embed the same version as a static string (`SCRIPT_VERSION` in bash, `$ScriptVersion` in PowerShell) and log it at startup. When `VERSION.txt` is updated, the embedded strings in both scripts must be updated to match.
+`VERSION.txt` in the `FS_Mod_Build_Scripts` repo holds the canonical version string (e.g. `v1.3.0`). Both scripts embed the same version as a static string (`SCRIPT_VERSION` in bash, `$ScriptVersion` in PowerShell) and log it at startup. When `VERSION.txt` is updated, the embedded strings in both scripts must be updated to match.
 
 ---
 
 ## CI release workflow
 
-`examples/release.yml` in this repo is a ready-to-copy GitHub Actions workflow for mod repos. It:
+`examples/release.yml` in the `FS_Mod_Build_Scripts` repo is a ready-to-copy GitHub Actions workflow for mod repos. It:
 
 - Triggers on `release/*` (published) and `draft-release/*` (draft) tag pushes.
 - Reads `fs_versions.json` to determine which FS versions to build.
-- Downloads `build.sh` from a pinned or latest release of this repo.
+- Downloads `build.sh` from a pinned or latest release of `FS_Mod_Build_Scripts`.
 - Builds one zip per FS version and attaches all zips to a GitHub Release.
 
 To trigger a release from a mod repo:

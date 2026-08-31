@@ -58,6 +58,15 @@ Dev files (`.bak`, `.log`, `.png`) are excluded from the zip. Zip entries always
 
 `--fs_ver` accepts a single version number or a comma-separated list (e.g. `25,28`). If omitted, the highest-numbered `FS*_Src/` directory is used.
 
+## Using with AI
+
+`skill/SKILL.md` is a structured reference document for AI assistants. It covers script usage, expected mod folder structure, restructuring guidance, version tracking, and CI workflow setup. Any AI toolchain (Copilot, Claude, Cursor, etc.) can read it to assist with building, auditing, or setting up FS mod repos.
+
+To install for VS Code Copilot, copy `skill/SKILL.md` into your VS Code user prompts folder under a named subdirectory:
+```
+<VS Code user data>/User/prompts/fs-mod-build-scripts/SKILL.md
+```
+
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
