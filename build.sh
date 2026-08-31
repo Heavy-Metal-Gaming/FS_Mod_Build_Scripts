@@ -30,6 +30,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_VERSION="v1.2.0"
 MOD_BASE_PATH=""
 
 # ---------------------------------------------------------------------------
@@ -157,6 +158,8 @@ do_build() {
 # ---------------------------------------------------------------------------
 # Main — parse arguments
 # ---------------------------------------------------------------------------
+echo "FS Mod Build Scripts ${SCRIPT_VERSION}"
+
 if [ $# -lt 1 ]; then
     usage
 fi
